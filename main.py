@@ -1,139 +1,65 @@
-
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import yt_dlp
 import os
+import asyncio
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
+from aiogram.filters import CommandStart
+from dotenv import load_dotenv
+import yt_dlp
 
+load_dotenv()
 
-API_ID = 123456
-API_HASH = "API_HASH"
 TOKEN = os.getenv("BOT_TOKEN")
 
-app = Client(
-    "SaqlaBot",
-    bot_token=BOT_TOKEN,
-    api_id=API_ID,
-    api_hash=API_HASH
-)
-
-user_links = {}
-
-# START
-@app.on_message(filters.command("start"))
-async def start(client, message):
-
-    text = """
-🚀 Video Yuklovchi Bot
-
-📥 Link yuboring:
-• YouTube
-• TikTok
-• Instagram
-• Facebook
-
-Keyin format tanlaysiz.
-"""
-
-    buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎬 Video", callback_data="video"),
-            InlineKeyboardButton("🎵 MP3", callback_data="music")
-        ]
-    ])
-
-    await message.reply(text, reply_markup=buttons)
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
 
-# LINK SAQLASH
-@app.on_message(filters.text & ~filters.command("start"))
-async def save_link(client, message):
-
-    user_links[message.from_user.id] = message.text
-
-    buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎬 Video", callback_data="video"),
-            InlineKeyboardButton("🎵 MP3", callback_data="music")
-        ]
-    ])
-
-    await message.reply(
-        "📥 Yuklash turini tanlang:",
-        reply_markup=buttons
+@dp.message(CommandStart())
+async def start(message: Message):
+    await message.answer(
+        "🎬 Saqla Bot\n\n"
+        "Link yuboring."
     )
 
 
-# CALLBACK
-@app.on_callback_query()
-async def callback(client, callback_query):
+@dp.message(F.text)
+async def downloader(message: Message):
 
-    user_id = callback_query.from_user.id
+    url = message.text
 
-    if user_id not in user_links:
-        return await callback_query.message.reply("❌ Avval link yuboring.")
+    if "http" not in url:
+        return await message.answer("❌ Link yuboring")
 
-    url = user_links[user_id]
+    await message.answer("⏳ Yuklanmoqda...")
 
-    msg = await callback_query.message.reply("⏳ Yuklanmoqda...")
+    ydl_opts = {
+        'outtmpl': 'video.%(ext)s'
+    }
 
     try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
 
-        # VIDEO
-        if callback_query.data == "video":
+        video_file = None
 
-            ydl_opts = {
-                'format': 'best',
-                'outtmpl': 'downloads/%(title)s.%(ext)s',
-                'noplaylist': True
-            }
+        for file in os.listdir():
+            if file.startswith("video."):
+                video_file = file
+                break
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                file_path = ydl.prepare_filename(info)
-
-            await callback_query.message.reply_video(
-                video=file_path,
-                caption="✅ Video tayyor"
+        if video_file:
+            await message.answer_video(
+                video=open(video_file, 'rb')
             )
 
-            os.remove(file_path)
-
-        # MUSIC
-        elif callback_query.data == "music":
-
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'outtmpl': 'downloads/%(title)s.%(ext)s',
-                'noplaylist': True,
-                'postprocessors': [{
-                    'key': 'FFmpegExtractAudio',
-                    'preferredcodec': 'mp3',
-                    'preferredquality': '192',
-                }],
-            }
-
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info['title']
-                file_path = f"downloads/{title}.mp3"
-
-            await callback_query.message.reply_audio(
-                audio=file_path,
-                caption="🎵 MP3 tayyor"
-            )
-
-            os.remove(file_path)
-
-        await msg.delete()
+            os.remove(video_file)
 
     except Exception as e:
-        await msg.edit(f"❌ Xato:\n{e}")
+        await message.answer(f"❌ Xato:\n{e}")
 
 
-# DOWNLOAD PAPKA
-if not os.path.exists("downloads"):
-    os.mkdir("downloads")
+async def main():
+    await dp.start_polling(bot)
 
-print("Bot ishga tushdi ✅")
-
-app.run()
+if __name__ == "main":
+    asyncio.run(main())
